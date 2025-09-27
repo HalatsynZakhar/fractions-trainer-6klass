@@ -10,67 +10,71 @@ from collections import Counter
 
 
 class SolutionWindow(tk.Toplevel):
-    """Окреме вікно для показу рішення"""
+    """Окреме, повністю функціональне вікно для показу рішення"""
 
     def __init__(self, parent, solution_steps):
         super().__init__(parent)
         self.title("Рішення завдання")
-        try:
-            self.state('zoomed')
-        except tk.TclError:
-            self.attributes('-zoomed', True)
+        self.geometry("800x600")
         self.transient(parent)
 
         self.font_explanation = font.Font(family="Helvetica", size=18)
         self.font_title = font.Font(family="Helvetica", size=20, weight="bold")
-        self.font_body = font.Font(family="Helvetica", size=16)
+        self.font_frac = font.Font(family="Helvetica", size=22, weight="bold")
 
-        self.steps_labels = []
-        self.solution_steps = solution_steps
+        # Створюємо Canvas та Scrollbar
+        canvas = tk.Canvas(self)
+        scrollbar = ttk.Scrollbar(self, orient="vertical", command=canvas.yview)
+        scrollable_frame = ttk.Frame(canvas)
 
-        main_frame = ttk.Frame(self, padding=20)
-        main_frame.pack(fill="both", expand=True)
+        scrollable_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
 
-        slider_var = tk.IntVar(value=len(solution_steps) - 1)
-        self.slider_var = slider_var
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
 
-        slider_frame = ttk.Frame(main_frame)
-        slider_frame.pack(fill="x")
-        slider = ttk.Scale(slider_frame, from_=0, to=len(solution_steps) - 1, variable=slider_var,
-                           command=self._on_slider_change)
-        slider.pack(side=tk.LEFT, fill="x", expand=True)
-        self.step_label_var = tk.StringVar()
-        ttk.Label(slider_frame, textvariable=self.step_label_var, font=self.font_body).pack(side=tk.LEFT, padx=10)
+        # Розміщуємо контент у scrollable_frame
+        row_counter = 0
+        for style, text in solution_steps:
+            frame = ttk.LabelFrame(scrollable_frame, padding=15)
+            frame.grid(row=row_counter, column=0, sticky="ew", pady=10, padx=10)
+            scrollable_frame.columnconfigure(0, weight=1)
+            row_counter += 1
 
-        self.steps_frame = ttk.Frame(main_frame, padding=10)
-        self.steps_frame.pack(fill="both", expand=True)
+            lines = text.split('\n')
 
-        self.steps_frame.bind("<Configure>", self._on_configure)
-        self._on_slider_change()
+            title_label = ttk.Label(frame, text=lines[0],
+                                    font=self.font_title if style == "bold" else self.font_explanation)
+            title_label.pack(anchor="w")
 
-    def _on_slider_change(self, value=None):
-        current_step = self.slider_var.get()
-        max_steps = len(self.solution_steps) - 1
-        self.step_label_var.set(f"Крок: {current_step}/{max_steps}")
-        for widget in self.steps_frame.winfo_children(): widget.destroy()
+            for line in lines[1:]:
+                if "->" in line:
+                    parts = line.split("->")
+                    left, right = parts[0].strip(), parts[1].strip()
+                    frac_frame = ttk.Frame(frame)
+                    frac_frame.pack(anchor="w", pady=10)
+                    self.draw_fraction_expression(frac_frame, left)
+                    ttk.Label(frac_frame, text="  ->  ", font=self.font_frac).pack(side=tk.LEFT, padx=10)
+                    self.draw_fraction_expression(frac_frame, right)
+                else:
+                    line_label = ttk.Label(frame, text=line, font=self.font_explanation, wraplength=700)
+                    line_label.pack(anchor="w", pady=2)
+                    frame.bind("<Configure>", lambda e, lbl=line_label: lbl.config(wraplength=e.width - 40))
 
-        self.steps_labels.clear()
-        for i in range(current_step + 1):
-            if i < len(self.solution_steps):
-                style, text = self.solution_steps[i]
-                lbl = ttk.Label(self.steps_frame, text=text,
-                                font=self.font_explanation if style == "normal" else self.font_title)
-                lbl.pack(anchor="w", pady=5, padx=10)
-                self.steps_labels.append(lbl)
-        self.update_wraplength()
-
-    def _on_configure(self, event):
-        self.update_wraplength()
-
-    def update_wraplength(self):
-        width = self.steps_frame.winfo_width()
-        for label in self.steps_labels:
-            label.config(wraplength=width - 40)
+    def draw_fraction_expression(self, parent, expression):
+        parts = expression.split('+')
+        for i, part in enumerate(parts):
+            if i > 0: ttk.Label(parent, text=" + ", font=self.font_frac).pack(side=tk.LEFT)
+            n_str, d_str = map(str.strip, part.replace('(', '').replace(')', '').split('/'))
+            canvas = tk.Canvas(parent, height=60, bg=self.cget('bg'))
+            canvas.pack(side=tk.LEFT)
+            n_w, d_w = self.font_frac.measure(n_str), self.font_frac.measure(d_str)
+            max_w = max(n_w, d_w) + 10
+            canvas.config(width=max_w)
+            canvas.create_text(max_w / 2, 15, text=n_str, font=self.font_frac, anchor="center")
+            canvas.create_line(2, 30, max_w - 2, 30, width=3)
+            canvas.create_text(max_w / 2, 45, text=d_str, font=self.font_frac, anchor="center")
 
 
 class FractionVisualizerApp(tk.Tk):
@@ -84,8 +88,6 @@ class FractionVisualizerApp(tk.Tk):
 
         self.MAX_DENOMINATOR = 100
         self.color1, self.color2, self.empty_color = 'deepskyblue', 'salmon', '#E0E0E0'
-        self.history, self.history_index = [], -1
-        self.solution_steps = []
         self.task_n1, self.task_d1, self.task_n2, self.task_d2, self.task_lcm = 0, 1, 0, 1, 1
 
         self.font_body = font.Font(family="Helvetica", size=16)
@@ -102,7 +104,6 @@ class FractionVisualizerApp(tk.Tk):
 
         self.num1_var, self.den1_var = tk.IntVar(), tk.IntVar()
         self.num2_var, self.den2_var = tk.IntVar(), tk.IntVar()
-        self.history_slider_var = tk.IntVar()
         self.success_var = tk.StringVar()
 
         main_pane = ttk.PanedWindow(self, orient=tk.VERTICAL)
@@ -118,19 +119,12 @@ class FractionVisualizerApp(tk.Tk):
         self.task_canvas = tk.Canvas(task_frame, height=60)
         self.task_canvas.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
-        history_frame = ttk.Frame(task_frame)
-        history_frame.pack(side=tk.LEFT, padx=20)
-        self.success_label = ttk.Label(history_frame, textvariable=self.success_var, style="Success.TLabel")
+        toolbar_frame = ttk.Frame(task_frame)
+        toolbar_frame.pack(side=tk.LEFT, padx=20)
+        self.success_label = ttk.Label(toolbar_frame, textvariable=self.success_var, style="Success.TLabel")
         self.success_label.pack(side=tk.LEFT, padx=20)
-        self.back_button = ttk.Button(history_frame, text="←", command=self._go_back)
-        self.back_button.pack(side=tk.LEFT)
-        self.history_slider = ttk.Scale(history_frame, from_=0, to=0, variable=self.history_slider_var,
-                                        command=self._on_history_slider_change, length=200)
-        self.history_slider.pack(side=tk.LEFT, padx=5)
-        self.forward_button = ttk.Button(history_frame, text="→", command=self._go_forward)
-        self.forward_button.pack(side=tk.LEFT)
-        ttk.Button(history_frame, text="Нове завдання", command=self._generate_new_task).pack(side=tk.LEFT, padx=10)
-        ttk.Button(history_frame, text="Показати рішення", command=self._open_solution_window).pack(side=tk.LEFT,
+        ttk.Button(toolbar_frame, text="Нове завдання", command=self._generate_new_task).pack(side=tk.LEFT, padx=10)
+        ttk.Button(toolbar_frame, text="Показати рішення", command=self._open_solution_window).pack(side=tk.LEFT,
                                                                                                     padx=10)
 
         controls_frame = ttk.Frame(top_pane_frame)
@@ -148,7 +142,7 @@ class FractionVisualizerApp(tk.Tk):
         self.canvas = FigureCanvasTkAgg(self.figure, plot_frame)
         self.canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=True)
 
-        self._generate_new_task(is_initial=True)
+        self._generate_new_task()
 
     def _create_fraction_controls(self, parent, title, num_var, den_var, col):
         frame = ttk.Frame(parent);
@@ -219,12 +213,6 @@ class FractionVisualizerApp(tk.Tk):
         if self.num2_var.get() > self.den2_var.get(): self.num2_var.set(self.den2_var.get())
         self.visualize()
 
-    def _on_history_slider_change(self, value):
-        new_index = int(float(value))
-        if new_index != self.history_index:
-            self.history_index = new_index
-            self._load_state(self.history[self.history_index])
-
     def _open_solution_window(self):
         self._build_solution_for_task()
         SolutionWindow(self, self.solution_steps)
@@ -236,19 +224,11 @@ class FractionVisualizerApp(tk.Tk):
                 control_group[part]['plus'].config(state=state)
                 control_group[part]['minus'].config(state=state)
 
-    def _generate_new_task(self, is_initial=False):
+    def _generate_new_task(self):
         d1, d2 = random.randint(4, 12), random.randint(4, 12)
         while d1 == d2 or math.gcd(d1, d2) > 1: d1, d2 = random.randint(4, 12), random.randint(4, 12)
         n1, n2 = random.randint(1, d1 - 1), random.randint(1, d2 - 1)
-        state = (n1, d1, n2, d2)
-        if not is_initial:
-            if self.history_index < len(self.history) - 1: self.history = self.history[:self.history_index + 1]
-            self.history.append(state);
-            self.history_index = len(self.history) - 1
-        else:
-            self.history.append(state); self.history_index = 0
-        self.history_slider.config(to=len(self.history) - 1 if len(self.history) > 1 else 0)
-        self._load_state(state)
+        self._load_state((n1, d1, n2, d2))
 
     def _load_state(self, state):
         self._set_controls_state(tk.NORMAL)
@@ -261,23 +241,7 @@ class FractionVisualizerApp(tk.Tk):
         self.num2_var.set(n2);
         self.den2_var.set(d2)
         self._update_task_display(n1, d1, n2, d2)
-        self._update_history_buttons_state()
-        self.history_slider_var.set(self.history_index)
         self._on_slider_change()
-
-    def _go_back(self):
-        if self.history_index > 0:
-            self.history_index -= 1;
-            self._load_state(self.history[self.history_index])
-
-    def _go_forward(self):
-        if self.history_index < len(self.history) - 1:
-            self.history_index += 1;
-            self._load_state(self.history[self.history_index])
-
-    def _update_history_buttons_state(self):
-        self.back_button.config(state=tk.NORMAL if self.history_index > 0 else tk.DISABLED)
-        self.forward_button.config(state=tk.NORMAL if self.history_index < len(self.history) - 1 else tk.DISABLED)
 
     def get_prime_factorization(self, n):
         factors, d = [], 2
@@ -330,8 +294,10 @@ class FractionVisualizerApp(tk.Tk):
         else:
             self.success_var.set("")
 
-        # --- Динамічне компонування ---
-        if den1 == den2 and sum_num >= den1:
+        is_sum_greater_than_one = (den1 == den2 and sum_num >= den1)
+        is_sum_exactly_one = (den1 == den2 and sum_num == den1)
+
+        if is_sum_greater_than_one and not is_sum_exactly_one:
             gs = gridspec.GridSpec(2, 3, figure=self.figure)
             ax1, ax2 = self.figure.add_subplot(gs[:, 0]), self.figure.add_subplot(gs[:, 1])
             ax3, ax4 = self.figure.add_subplot(gs[0, 2]), self.figure.add_subplot(gs[1, 2])
@@ -341,30 +307,32 @@ class FractionVisualizerApp(tk.Tk):
             ax3 = self.figure.add_subplot(gs[2])
             ax4 = None
 
-        self.draw_fraction_pie(ax1, [num1], [self.color1], den1, f"Перший дріб: $\\frac{{{num1}}}{{{den1}}}$")
-        self.draw_fraction_pie(ax2, [num2], [self.color2], den2, f"Другий дріб: $\\frac{{{num2}}}{{{den2}}}$")
+        self.draw_fraction_pie(ax1, [num1], [self.color1], den1, f"Перший дріб\n$\\frac{{{num1}}}{{{den1}}}$")
+        self.draw_fraction_pie(ax2, [num2], [self.color2], den2, f"Другий дріб\n$\\frac{{{num2}}}{{{den2}}}$")
         ax2.axvline(x=1.6, color='grey', linestyle='--', linewidth=2, ymin=0.05, ymax=0.95)
 
         if den1 == den2:
-            whole, frac = divmod(sum_num, den1)
-            title = f"$\\frac{{{num1}}}{{{den1}}} + \\frac{{{num2}}}{{{den1}}} = \\frac{{{sum_num}}}{{{den1}}}$"
-            if whole > 0: title += f" = {whole}" + (f" $\\frac{{{frac}}}{{{den1}}}$" if frac > 0 else "")
-
-            if sum_num < den1:
-                self.draw_fraction_pie(ax3, [num1, num2], [self.color1, self.color2], den1, title)
-            else:
-                first_fill = min(num2, den1 - num1);
-                second_rem = num2 - first_fill
-                self.draw_fraction_pie(ax3, [num1, first_fill], [self.color1, self.color2], den1, title)
-                if ax4:
-                    if second_rem > 0 or (frac == 0 and whole > 1):
-                        self.draw_fraction_pie(ax4, [second_rem if second_rem > 0 else den1], [self.color2], den1,
-                                               "Дробова частина")
+            self._display_sum_result(ax3, ax4, num1, num2, den1)
         else:
             self.draw_placeholder(ax3, "Результат")
 
         self.figure.tight_layout(pad=2.0, h_pad=4.0)
         self.canvas.draw()
+
+    def _display_sum_result(self, ax3, ax4, n1, n2, den):
+        sum_num = n1 + n2
+        whole, frac = divmod(sum_num, den)
+        title = f"$\\frac{{{n1}}}{{{den}}} + \\frac{{{n2}}}{{{den}}} = \\frac{{{sum_num}}}{{{den}}}$"
+        if whole > 0: title += f" = {whole}" + (f" $\\frac{{{frac}}}{{{den}}}$" if frac > 0 else "")
+
+        if sum_num < den or sum_num == den:
+            self.draw_fraction_pie(ax3, [n1, n2], [self.color1, self.color2], den, title)
+        else:
+            first_fill = min(n2, den - n1);
+            second_rem = n2 - first_fill
+            self.draw_fraction_pie(ax3, [n1, first_fill], [self.color1, self.color2], den, title)
+            if ax4:
+                self.draw_fraction_pie(ax4, [second_rem], [self.color2], den, "Дробова частина")
 
     def _build_solution_for_task(self):
         n1, d1, n2, d2 = self.task_n1, self.task_d1, self.task_n2, self.task_d2
@@ -374,8 +342,8 @@ class FractionVisualizerApp(tk.Tk):
         sol_text = [
             ("bold", "--- КРОК 3: ПОВНЕ РІШЕННЯ ЗАВДАННЯ ---"),
             ("normal",
-             f"1. Домножимо дроби із ЗАВДАННЯ на їх додаткові множники:\n   ({n1}/{d1}) + ({n2}/{d2}) -> ({(n1 * m1)}/{lcm}) + ({(n2 * m2)}/{lcm})"),
-            ("normal", f"2. Додамо чисельники:\n   = {(n1 * m1 + n2 * m2)}/{lcm}"),
+             f"1. Домножимо дроби із ЗАВДАННЯ на їх додаткові множники:\n({n1}/{d1}) + ({n2}/{d2}) -> ({(n1 * m1)}/{lcm}) + ({(n2 * m2)}/{lcm})"),
+            ("normal", f"2. Додамо чисельники:\n= ({(n1 * m1 + n2 * m2)}/{lcm})"),
             ("bold", f"3. Ваша мета: встановити на повзунках знаменник '{lcm}' та відповідні нові чисельники."),
         ]
         self.solution_steps.extend(sol_text)
@@ -411,5 +379,4 @@ class FractionVisualizerApp(tk.Tk):
 
 if __name__ == "__main__":
     app = FractionVisualizerApp()
-    SolutionWindow.font_body = font.Font(family="Helvetica", size=16)  # Pass font to the class
     app.mainloop()
