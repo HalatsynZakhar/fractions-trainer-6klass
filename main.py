@@ -16,25 +16,22 @@ class SolutionWindow(tk.Toplevel):
         super().__init__(parent)
         self.title("Рішення завдання")
         self.geometry("800x600")
-        self.transient(parent)
 
         self.font_explanation = font.Font(family="Helvetica", size=18)
         self.font_title = font.Font(family="Helvetica", size=20, weight="bold")
         self.font_frac = font.Font(family="Helvetica", size=22, weight="bold")
 
-        # Створюємо Canvas та Scrollbar
-        canvas = tk.Canvas(self)
-        scrollbar = ttk.Scrollbar(self, orient="vertical", command=canvas.yview)
-        scrollable_frame = ttk.Frame(canvas)
+        main_canvas = tk.Canvas(self)
+        scrollbar = ttk.Scrollbar(self, orient="vertical", command=main_canvas.yview)
+        scrollable_frame = ttk.Frame(main_canvas)
 
-        scrollable_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
-        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
-        canvas.configure(yscrollcommand=scrollbar.set)
+        scrollable_frame.bind("<Configure>", lambda e: main_canvas.configure(scrollregion=main_canvas.bbox("all")))
+        main_canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        main_canvas.configure(yscrollcommand=scrollbar.set)
 
-        canvas.pack(side="left", fill="both", expand=True)
+        main_canvas.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
 
-        # Розміщуємо контент у scrollable_frame
         row_counter = 0
         for style, text in solution_steps:
             frame = ttk.LabelFrame(scrollable_frame, padding=15)
@@ -66,8 +63,13 @@ class SolutionWindow(tk.Toplevel):
         parts = expression.split('+')
         for i, part in enumerate(parts):
             if i > 0: ttk.Label(parent, text=" + ", font=self.font_frac).pack(side=tk.LEFT)
-            n_str, d_str = map(str.strip, part.replace('(', '').replace(')', '').split('/'))
-            canvas = tk.Canvas(parent, height=60, bg=self.cget('bg'))
+            try:
+                n_str, d_str = map(str.strip, part.replace('(', '').replace(')', '').split('/'))
+            except ValueError:
+                ttk.Label(parent, text=part, font=self.font_frac).pack(side=tk.LEFT)
+                continue
+
+            canvas = tk.Canvas(parent, height=60, bg=self.cget('bg'), highlightthickness=0)
             canvas.pack(side=tk.LEFT)
             n_w, d_w = self.font_frac.measure(n_str), self.font_frac.measure(d_str)
             max_w = max(n_w, d_w) + 10
@@ -172,7 +174,10 @@ class FractionVisualizerApp(tk.Tk):
 
     def _update_task_display(self, n1, d1, n2, d2):
         self.task_canvas.delete("all")
-        self.task_canvas.bind("<Configure>", lambda e: self._draw_task_fractions(n1, d1, n2, d2))
+        self.task_canvas.bind("<Configure>", lambda e: self._draw_task_fractions(n1, d1, n2, d2), add="+")
+        # ВИПРАВЛЕННЯ: Примусово оновлюємо, щоб отримати розмір для <Configure>
+        self.update_idletasks()
+        self._draw_task_fractions(n1, d1, n2, d2)
 
     def _draw_task_fractions(self, n1, d1, n2, d2):
         self.task_canvas.delete("all")
@@ -225,8 +230,11 @@ class FractionVisualizerApp(tk.Tk):
                 control_group[part]['minus'].config(state=state)
 
     def _generate_new_task(self):
-        d1, d2 = random.randint(4, 12), random.randint(4, 12)
-        while d1 == d2 or math.gcd(d1, d2) > 1: d1, d2 = random.randint(4, 12), random.randint(4, 12)
+        while True:
+            d1, d2 = random.randint(4, 15), random.randint(4, 15)
+            lcm = (d1 * d2) // math.gcd(d1, d2)
+            if d1 != d2 and lcm <= self.MAX_DENOMINATOR:
+                break
         n1, n2 = random.randint(1, d1 - 1), random.randint(1, d2 - 1)
         self._load_state((n1, d1, n2, d2))
 
@@ -294,10 +302,9 @@ class FractionVisualizerApp(tk.Tk):
         else:
             self.success_var.set("")
 
-        is_sum_greater_than_one = (den1 == den2 and sum_num >= den1)
-        is_sum_exactly_one = (den1 == den2 and sum_num == den1)
+        is_sum_greater_than_one = (den1 == den2 and sum_num > den1)
 
-        if is_sum_greater_than_one and not is_sum_exactly_one:
+        if is_sum_greater_than_one:
             gs = gridspec.GridSpec(2, 3, figure=self.figure)
             ax1, ax2 = self.figure.add_subplot(gs[:, 0]), self.figure.add_subplot(gs[:, 1])
             ax3, ax4 = self.figure.add_subplot(gs[0, 2]), self.figure.add_subplot(gs[1, 2])
@@ -325,14 +332,14 @@ class FractionVisualizerApp(tk.Tk):
         title = f"$\\frac{{{n1}}}{{{den}}} + \\frac{{{n2}}}{{{den}}} = \\frac{{{sum_num}}}{{{den}}}$"
         if whole > 0: title += f" = {whole}" + (f" $\\frac{{{frac}}}{{{den}}}$" if frac > 0 else "")
 
-        if sum_num < den or sum_num == den:
+        if sum_num <= den:
             self.draw_fraction_pie(ax3, [n1, n2], [self.color1, self.color2], den, title)
         else:
             first_fill = min(n2, den - n1);
             second_rem = n2 - first_fill
             self.draw_fraction_pie(ax3, [n1, first_fill], [self.color1, self.color2], den, title)
             if ax4:
-                self.draw_fraction_pie(ax4, [second_rem], [self.color2], den, "Дробова частина")
+                self.draw_fraction_pie(ax4, [second_rem], [self.color2], den, "")
 
     def _build_solution_for_task(self):
         n1, d1, n2, d2 = self.task_n1, self.task_d1, self.task_n2, self.task_d2
@@ -353,7 +360,7 @@ class FractionVisualizerApp(tk.Tk):
         ax.axis('equal')
         total_num = sum(numerators)
         if total_num > 0 and denominator > 0:
-            val, rounded_val = total_num / denominator, round(total_num / denominator, 2)
+            val, rounded_val = total_num / denominator, round(total_num / denominator, 3) #округлення, точність
             prefix = "≈" if abs(val - rounded_val) > 1e-9 else "="
             ax.text(0, -1.4, f"({prefix} {rounded_val})", ha='center', va='center', fontsize=18, color='gray')
         sizes, final_colors = [], []
