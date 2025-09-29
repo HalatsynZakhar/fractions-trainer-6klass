@@ -91,13 +91,14 @@ class SolutionWindow(tk.Toplevel):
 class FractionVisualizerApp(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("Інтерактивний тренажер: Віднімання мішаних чисел (Раціональний метод)")
+        self.title("Інтерактивний тренажер: Віднімання (Ручне перетворення)")
         try:
             self.state('zoomed')
         except tk.TclError:
             self.attributes('-zoomed', True)
 
         self.MAX_CIRCLES = 4
+        self.MAX_SLIDER_VAL = 100
         self.color1, self.color2, self.empty_color = 'deepskyblue', 'salmon', '#E0E0E0'
         self.task_n1, self.task_d1, self.task_n2, self.task_d2 = 0, 1, 0, 1
 
@@ -113,8 +114,12 @@ class FractionVisualizerApp(tk.Tk):
         self.style.configure("Title.TLabel", font=self.font_title)
         self.style.configure("Success.TLabel", font=self.font_success, foreground="green")
 
-        self.num1_var, self.den1_var = tk.IntVar(), tk.IntVar()
-        self.num2_var, self.den2_var = tk.IntVar(), tk.IntVar()
+        self.whole1_var = tk.IntVar()
+        self.num1_var = tk.IntVar()
+        self.den1_var = tk.IntVar()
+        self.whole2_var = tk.IntVar()
+        self.num2_var = tk.IntVar()
+        self.den2_var = tk.IntVar()
         self.success_var = tk.StringVar()
 
         main_pane = ttk.PanedWindow(self, orient=tk.VERTICAL)
@@ -142,8 +147,11 @@ class FractionVisualizerApp(tk.Tk):
         controls_frame.grid(row=1, column=0, sticky="nsew", pady=(10, 0))
         controls_frame.columnconfigure(0, weight=1);
         controls_frame.columnconfigure(1, weight=1)
-        self.controls1 = self._create_fraction_controls(controls_frame, "Зменшуване", self.num1_var, self.den1_var, 0)
-        self.controls2 = self._create_fraction_controls(controls_frame, "Від'ємник", self.num2_var, self.den2_var, 1)
+
+        self.controls1 = self._create_fraction_controls(controls_frame, "Зменшуване", self.whole1_var, self.num1_var,
+                                                        self.den1_var, 0)
+        self.controls2 = self._create_fraction_controls(controls_frame, "Від'ємник", self.whole2_var, self.num2_var,
+                                                        self.den2_var, 1)
 
         plot_frame = ttk.Frame(main_pane)
         main_pane.add(plot_frame, weight=7)
@@ -153,31 +161,47 @@ class FractionVisualizerApp(tk.Tk):
 
         self._generate_new_task()
 
-    def _create_fraction_controls(self, parent, title, num_var, den_var, col):
+    def _create_fraction_controls(self, parent, title, whole_var, num_var, den_var, col):
         frame = ttk.Frame(parent)
         frame.grid(row=0, column=col, padx=20, sticky="nsew")
         frame.columnconfigure(0, weight=1)
         ttk.Label(frame, text=title, style="Title.TLabel").pack(pady=(0, 20))
+
+        whole_widgets = self._create_slider_unit(frame, "Ціла частина:", whole_var, is_slider=False)
+        whole_widgets['frame'].pack(pady=5, fill="x", expand=True)
+        ttk.Separator(frame, orient="horizontal").pack(pady=15, fill="x", expand=True)
+
         num_widgets = self._create_slider_unit(frame, "Чисельник:", num_var)
         num_widgets['frame'].pack(pady=5, fill="x", expand=True)
-        ttk.Separator(frame, orient="horizontal").pack(pady=20, fill="x", expand=True)
+        ttk.Separator(frame, orient="horizontal").pack(pady=15, fill="x", expand=True)
+
         den_widgets = self._create_slider_unit(frame, "Знаменник:", den_var)
         den_widgets['frame'].pack(pady=5, fill="x", expand=True)
-        return {'num': num_widgets, 'den': den_widgets}
 
-    def _create_slider_unit(self, parent, label_text, var):
+        return {'whole': whole_widgets, 'num': num_widgets, 'den': den_widgets}
+
+    def _create_slider_unit(self, parent, label_text, var, is_slider=True):
         frame = ttk.Frame(parent)
         frame.columnconfigure(1, weight=1)
         ttk.Label(frame, text=label_text).grid(row=0, column=0, columnspan=4, sticky="w")
+
+        scale = None
+        if is_slider:
+            scale = ttk.Scale(frame, from_=0, to=self.MAX_SLIDER_VAL, variable=var,
+                              command=lambda val, v=var: self._on_slider_change(val, v), orient="horizontal")
+            scale.grid(row=1, column=1, sticky="ew")
+        else:
+            ttk.Frame(frame).grid(row=1, column=1, sticky="ew")
+
         btn_minus = ttk.Button(frame, text="-", command=lambda v=var: self._adjust_value(v, -1))
         btn_minus.grid(row=1, column=0, padx=(0, 5))
-        scale = ttk.Scale(frame, from_=0, to=100, variable=var,
-                          command=lambda val, v=var: self._on_slider_change(val, v), orient="horizontal")
-        scale.grid(row=1, column=1, sticky="ew")
         btn_plus = ttk.Button(frame, text="+", command=lambda v=var: self._adjust_value(v, 1))
         btn_plus.grid(row=1, column=2, padx=5)
-        ttk.Label(frame, textvariable=var, font=self.font_slider_value, width=4).grid(row=1, column=3, padx=(10, 0))
-        return {'frame': frame, 'scale': scale}
+
+        val_label = ttk.Label(frame, textvariable=var, font=self.font_slider_value, width=4)
+        val_label.grid(row=1, column=3, padx=(10, 0))
+
+        return {'frame': frame, 'scale': scale, 'plus': btn_plus, 'minus': btn_minus}
 
     def _adjust_value(self, var, delta):
         var.set(var.get() + delta)
@@ -189,10 +213,8 @@ class FractionVisualizerApp(tk.Tk):
         if self.den2_var.get() < 1: self.den2_var.set(1)
         if self.num1_var.get() < 0: self.num1_var.set(0)
         if self.num2_var.get() < 0: self.num2_var.set(0)
-
-        self.controls1['num']['scale'].config(to=self.den1_var.get() * self.MAX_CIRCLES)
-        self.controls2['num']['scale'].config(to=self.den2_var.get() * self.MAX_CIRCLES)
-
+        if self.whole1_var.get() < 0: self.whole1_var.set(0)
+        if self.whole2_var.get() < 0: self.whole2_var.set(0)
         self.visualize()
 
     def _generate_new_task(self):
@@ -200,19 +222,18 @@ class FractionVisualizerApp(tk.Tk):
             d1, d2 = random.randint(3, 8), random.randint(3, 8)
             if d1 != d2: break
 
-        # Генеруємо зменшуване (завжди більше 1)
         whole1 = random.randint(1, 3)
         n1 = whole1 * d1 + random.randint(1, d1 - 1)
 
-        # Генеруємо від'ємник (може бути > 1)
         while True:
-            whole2 = random.randint(0, whole1)  # Від'ємник не може мати більше цілих
+            whole2 = random.randint(0, whole1)
             frac_n2 = random.randint(1, d2 - 1)
-            n2 = whole2 * d2 + frac_n2
 
-            # Гарантуємо, що результат буде додатнім
-            if n1 * d2 > n2 * d1:
-                break
+            if whole1 == whole2 and (frac_n2 * d1 >= divmod(n1, d1)[1] * d2):
+                continue
+
+            n2 = whole2 * d2 + frac_n2
+            if n1 * d2 > n2 * d1: break
 
         self._load_state((n1, d1, n2, d2))
 
@@ -222,9 +243,14 @@ class FractionVisualizerApp(tk.Tk):
         n1, d1, n2, d2 = state
         self.task_n1, self.task_d1, self.task_n2, self.task_d2 = n1, d1, n2, d2
 
-        self.num1_var.set(n1);
+        w1, f_n1 = divmod(n1, d1)
+        w2, f_n2 = divmod(n2, d2)
+
+        self.whole1_var.set(w1);
+        self.num1_var.set(f_n1);
         self.den1_var.set(d1)
-        self.num2_var.set(n2);
+        self.whole2_var.set(w2);
+        self.num2_var.set(f_n2);
         self.den2_var.set(d2)
 
         self._update_task_display(n1, d1, n2, d2)
@@ -280,179 +306,146 @@ class FractionVisualizerApp(tk.Tk):
         x_pos = draw_frac(n2, d2, x_pos)
 
     def _set_controls_state(self, state):
-        for part in ['scale']:
-            self.controls1['num'][part].config(state=state)
-            self.controls1['den'][part].config(state=state)
-            self.controls2['num'][part].config(state=state)
-            self.controls2['den'][part].config(state=state)
+        for ctrl_group in [self.controls1, self.controls2]:
+            for key in ['whole', 'num', 'den']:
+                widgets = ctrl_group[key]
+                widgets['plus'].config(state=state)
+                widgets['minus'].config(state=state)
+                if widgets['scale']:
+                    widgets['scale'].config(state=state)
 
     def visualize(self):
         self.figure.clear()
-        n1, d1 = self.num1_var.get(), self.den1_var.get()
-        n2, d2 = self.num2_var.get(), self.den2_var.get()
-        self.success_var.set("")
+        w1, n1, d1 = self.whole1_var.get(), self.num1_var.get(), self.den1_var.get()
+        w2, n2, d2 = self.whole2_var.get(), self.num2_var.get(), self.den2_var.get()
 
-        if d1 > 0 and d1 == d2:
-            user_n, user_d = n1 - n2, d1
-            correct_n, correct_d = self.task_n1 * self.task_d2 - self.task_n2 * self.task_d1, self.task_d1 * self.task_d2
-            if user_n >= 0 and user_n * correct_d == user_d * correct_d:
-                if math.gcd(user_n, user_d) > 1:
-                    self.success_var.set("✔ Правильно! Спробуйте ще скоротити вашу відповідь.")
-                else:
-                    self.success_var.set("✔ ВІДМІННО! Правильна відповідь.")
-                self._set_controls_state(tk.DISABLED)
+        total_n1 = w1 * d1 + n1
+        total_n2 = w2 * d2 + n2
 
         gs_main = gridspec.GridSpec(2, 3, figure=self.figure, height_ratios=[1, 9], hspace=0.1)
+        ax_title1, ax_title2, ax_title3 = (self.figure.add_subplot(gs_main[0, i], facecolor='none') for i in range(3))
+        for ax in [ax_title1, ax_title2, ax_title3]: ax.axis('off')
 
-        ax_title1 = self.figure.add_subplot(gs_main[0, 0]);
-        ax_title1.axis('off')
-        ax_title2 = self.figure.add_subplot(gs_main[0, 1]);
-        ax_title2.axis('off')
-        ax_title3 = self.figure.add_subplot(gs_main[0, 2]);
-        ax_title3.axis('off')
+        # ВИПРАВЛЕНО: Відображаємо тільки те, що ввів користувач
+        ax_title1.set_title(self.format_user_input_title("Зменшуване", w1, n1, d1), fontsize=18)
+        ax_title2.set_title(self.format_user_input_title("Від'ємник", w2, n2, d2), fontsize=18)
 
-        ax_title1.set_title(self.format_fraction_title("Зменшуване", n1, d1), fontsize=18)
-        ax_title2.set_title(self.format_fraction_title("Від'ємник", n2, d2), fontsize=18)
+        ax1, ax2, ax3 = (self.figure.add_subplot(gs_main[1, i]) for i in range(3))
+        self._draw_overlapping_circles(ax1, total_n1, d1, self.color1)
+        self._draw_overlapping_circles(ax2, total_n2, d2, self.color2)
 
-        # Створюємо єдину вісь для кожної групи кружечків
-        ax1 = self.figure.add_subplot(gs_main[1, 0])
-        ax2 = self.figure.add_subplot(gs_main[1, 1])
-        ax3 = self.figure.add_subplot(gs_main[1, 2])
-
-        self._draw_overlapping_circles(ax1, n1, d1, self.color1)
-        self._draw_overlapping_circles(ax2, n2, d2, self.color2)
-
-        if d1 == d2 and n1 >= n2:
-            res_n, res_d = n1 - n2, d1
-            ax_title3.set_title(self.format_fraction_title("Різниця", res_n, res_d), fontsize=18)
-            self._draw_overlapping_circles(ax3, res_n, res_d, self.color1)
-        else:
+        # Нова логіка перевірки та відображення
+        if d1 != d2:
             ax_title3.set_title("Різниця", fontsize=18)
-            self.draw_placeholder(ax3)
+            self.draw_placeholder(ax3, "Зведіть до\nспільного\nзнаменника!")
+        elif w1 < w2:
+            ax_title3.set_title("Різниця", fontsize=18)
+            self.draw_placeholder(ax3, "Ціла частина\nменша за\nцілу частину\nвід'ємника!")
+        elif n1 < n2:
+            ax_title3.set_title("Різниця", fontsize=18)
+            self.draw_placeholder(ax3, "Дріб менший.\n'Позичте'\nодиницю від\nцілої частини!")
+        else:
+            res_w, res_n, res_d = w1 - w2, n1 - n2, d1
+            ax_title3.set_title(self.format_user_input_title("Різниця", res_w, res_n, res_d), fontsize=18)
+            self._draw_overlapping_circles(ax3, res_w * res_d + res_n, res_d, self.color1)
+            self.success_var.set("✔ ВІДМІННО! Можна віднімати.")
+            self._set_controls_state(tk.DISABLED)
 
         self.figure.tight_layout(pad=2.0)
         self.canvas.draw()
 
-    def _format_fraction_display(self, n, d, for_matplotlib=True):
-        if d == 0: return "N/A", "N/A"
+    def format_user_input_title(self, base_title, w, n, d):
+        if d == 0: return base_title
 
-        frac_template = "$\\frac{{{n}}}{{{d}}}$" if for_matplotlib else "{n}/{d}"
-        mixed_template = "${whole}\\frac{{{n}}}{{{d}}}$" if for_matplotlib else "{whole} {n}/{d}"
+        whole_str = f"${w}$" if w > 0 else ""
+        frac_str = f"$\\frac{{{n}}}{{{d}}}$" if n > 0 or w == 0 else ""
 
-        improper = frac_template.format(n=n, d=d)
-        if n < d: return improper, improper
-
-        whole, frac_n = divmod(n, d)
-        if frac_n == 0:
-            mixed = f"${whole}$" if for_matplotlib else str(whole)
-        else:
-            mixed = mixed_template.format(whole=whole, n=frac_n, d=d)
-
-        return mixed, improper
-
-    def format_fraction_title(self, base_title, n, d):
-        if d == 0 or (n == 0 and d == 1): return base_title
-        mixed, improper = self._format_fraction_display(n, d)
-        return f"{base_title}\n{mixed} = {improper}" if mixed != improper else f"{base_title}\n{improper}"
+        return f"{base_title}\n{whole_str}{frac_str}"
 
     def _draw_overlapping_circles(self, ax, n, d, color):
-        ax.axis('off')
+        ax.axis('off');
         ax.set_aspect('equal', adjustable='box')
-
         if d == 0: return
         whole, frac_n = divmod(n, d)
-
         total_circles = whole + (1 if frac_n > 0 else 0)
-        if total_circles == 0:
-            self.draw_fraction_pie(ax, [0], [color], d, center=(0, 0))
-            return
+        if total_circles == 0 and n == 0: self.draw_fraction_pie(ax, [0], [color], d, center=(0, 0)); return
 
-        radius = 1.0
-        overlap = 0.65  # 1.0 - жодного накладання, 0.5 - сильне
+        radius = 1.0;
+        overlap = 0.65;
         step = 2 * radius * overlap
+        actual_width = (total_circles - 1) * step + 2 * radius if total_circles > 0 else 0
+        max_width = (self.MAX_CIRCLES - 1) * step + 2 * radius
 
-        total_width = (total_circles - 1) * step + 2 * radius
-        start_x = -total_width / 2 + radius
-
+        start_x = -actual_width / 2 + radius
         for i in range(whole):
             self.draw_fraction_pie(ax, [d], [color], d, center=(start_x + i * step, 0), radius=radius)
-
         if frac_n > 0:
             self.draw_fraction_pie(ax, [frac_n], [color], d, center=(start_x + whole * step, 0), radius=radius)
 
-        ax.set_xlim(-total_width / 2 - 0.1, total_width / 2 + 0.1)
-        ax.set_ylim(-radius - 0.1, radius + 0.1)
+        if d > 0:
+            val = round(n / d, 3)
+            ax.text(0, -radius - 1.0, f"≈ {val}", ha='center', va='top', fontsize=16, color='gray')
+
+        ax.set_xlim(-max_width / 2 - 0.2, max_width / 2 + 0.2);
+        ax.set_ylim(-radius - 1.4, radius + 0.2)
 
     def _build_solution_for_task(self):
         n1, d1, n2, d2 = self.task_n1, self.task_d1, self.task_n2, self.task_d2
         self.solution_steps = []
-
-        w1, f_n1 = divmod(n1, d1)
+        w1, f_n1 = divmod(n1, d1);
         w2, f_n2 = divmod(n2, d2)
 
-        self.solution_steps.append(("bold", "--- КРОК 1: ЗВЕДЕННЯ ДРОБОВИХ ЧАСТИН ДО СПІЛЬНОГО ЗНАМЕННИКА ---"))
+        self.solution_steps.append(("bold", "--- КРОК 1: ЗВЕДЕННЯ ДО СПІЛЬНОГО ЗНАМЕННИКА ---"))
         lcm = (d1 * d2) // math.gcd(d1, d2)
-        m1, m2 = lcm // d1, lcm // d2
-
-        new_f_n1 = f_n1 * m1
-        new_f_n2 = f_n2 * m2
-
+        new_f_n1, new_f_n2 = f_n1 * (lcm // d1), f_n2 * (lcm // d2)
         self.solution_steps.append(("normal",
-                                    f"НСК для {d1} і {d2} є {lcm}.\nДомножимо дробові частини:\n({f_n1}/{d1}) -> ({new_f_n1}/{lcm})\n({f_n2}/{d2}) -> ({new_f_n2}/{lcm})"))
+                                    f"НСК для {d1} і {d2} є {lcm}.\n{w1} {f_n1}/{d1} - {w2} {f_n2}/{d2} -> {w1} {new_f_n1}/{lcm} - {w2} {new_f_n2}/{lcm}"))
 
         if new_f_n1 < new_f_n2:
-            self.solution_steps.append(("bold", "--- КРОК 2: ПОЗИЧАННЯ ОДИНИЦІ ---"))
+            self.solution_steps.append(("bold", "--- КРОК 2: 'ПОЗИЧАННЯ' ОДИНИЦІ ---"))
             self.solution_steps.append(("normal",
-                                        f"Оскільки {new_f_n1} < {new_f_n2}, ми не можемо відняти дроби.\nПозичаємо 1 від цілої частини ({w1})."))
-            w1 -= 1
+                                        f"Оскільки {new_f_n1} < {new_f_n2}, позичаємо 1 від цілої частини ({w1}).\n1 = {lcm}/{lcm}."))
+            w1 -= 1;
             new_f_n1 += lcm
             self.solution_steps.append(("normal", f"Отримуємо: {w1} і ({new_f_n1}/{lcm})"))
 
-        final_w = w1 - w2
-        final_f_n = new_f_n1 - new_f_n2
-
+        final_w, final_f_n = w1 - w2, new_f_n1 - new_f_n2
         self.solution_steps.append(("bold", "--- КРОК 3: ВІДНІМАННЯ ---"))
-        self.solution_steps.append(("normal", f"1. Віднімаємо цілі частини: {w1} - {w2} = {final_w}"))
-        self.solution_steps.append(
-            ("normal", f"2. Віднімаємо дробові частини: ({new_f_n1}/{lcm}) - ({new_f_n2}/{lcm}) = ({final_f_n}/{lcm})"))
+        self.solution_steps.append(("normal",
+                                    f"1. Цілі частини: {w1} - {w2} = {final_w}\n2. Дробові частини: ({new_f_n1}/{lcm}) - ({new_f_n2}/{lcm}) = ({final_f_n}/{lcm})"))
 
-        common_divisor = math.gcd(final_f_n, lcm)
-        if common_divisor > 1:
-            self.solution_steps.append(("bold", "--- КРОК 4: СКОРОЧЕННЯ ДРОБОВОЇ ЧАСТИНИ ---"))
-            reduced_n, reduced_d = final_f_n // common_divisor, lcm // common_divisor
-            self.solution_steps.append(("normal", f"({final_f_n}/{lcm}) -> ({reduced_n}/{reduced_d})"))
-            final_f_n, lcm = reduced_n, reduced_d
+        final_n = final_w * lcm + final_f_n
+        final_d = lcm
+        common_divisor = math.gcd(final_n, final_d)
+        if common_divisor > 1 and final_n != 0:
+            self.solution_steps.append(("bold", "--- КРОК 4: СКОРОЧЕННЯ ---"))
+            reduced_n, reduced_d = final_n // common_divisor, final_d // common_divisor
+            self.solution_steps.append(("normal",
+                                        f"Перетворимо результат {final_w} {final_f_n}/{lcm} на неправильний дріб {final_n}/{lcm} і скоротимо його:\n({final_n}/{lcm}) -> ({reduced_n}/{reduced_d})"))
+            final_n, final_d = reduced_n, reduced_d
 
-        final_answer = ""
-        if final_w > 0:
-            final_answer += str(final_w)
-            if final_f_n > 0:
-                final_answer += f" {final_f_n}/{lcm}"
-        elif final_f_n > 0:
-            final_answer = f"{final_f_n}/{lcm}"
+        if final_n >= final_d and final_d != 0:
+            rw, rn = divmod(final_n, final_d)
+            self.solution_steps.append(("bold", f"Кінцева відповідь: {rw} {rn}/{final_d}" if rn > 0 else str(rw)))
         else:
-            final_answer = "0"
-
-        self.solution_steps.append(("bold", f"Кінцева відповідь: {final_answer}"))
+            self.solution_steps.append(("bold", f"Кінцева відповідь: {final_n}/{final_d}"))
 
     def draw_fraction_pie(self, ax, numerators, colors, denominator, center=(0, 0), radius=1.0):
         sizes, final_colors = [], []
         total_num = sum(numerators)
         if total_num > 0:
-            sizes.extend([n for n in numerators if n > 0])
+            sizes.extend([n for n in numerators if n > 0]);
             final_colors.extend(colors[:len(sizes)])
         if denominator - total_num > 0:
-            sizes.append(denominator - total_num)
+            sizes.append(denominator - total_num);
             final_colors.append(self.empty_color)
         if not sizes: sizes, final_colors = [1], [self.empty_color]
-
-        ax.pie(sizes, radius=radius, center=center, colors=final_colors, startangle=90, counterclock=False,
+        ax.pie(sizes, radius=radius * 2.2, center=center, colors=final_colors, startangle=90, counterclock=False,
                wedgeprops={'edgecolor': 'black', 'linewidth': 0.8})
 
-    def draw_placeholder(self, ax):
+    def draw_placeholder(self, ax, text):
         ax.axis('off')
-        ax.text(0.5, 0.5, "Зведіть до\nспільного\nзнаменника!", ha='center', va='center', fontsize=20, color='grey',
-                transform=ax.transAxes, wrap=True)
+        ax.text(0.5, 0.5, text, ha='center', va='center', fontsize=20, color='grey', transform=ax.transAxes, wrap=True)
 
     def _open_solution_window(self):
         self._build_solution_for_task()
