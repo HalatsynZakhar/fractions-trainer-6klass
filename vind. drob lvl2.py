@@ -100,7 +100,8 @@ class FractionVisualizerApp(tk.Tk):
         self.MAX_CIRCLES = 4
         self.MAX_SLIDER_VAL = 100
         self.color1, self.color2, self.empty_color = 'deepskyblue', 'salmon', '#E0E0E0'
-        self.task_n1, self.task_d1, self.task_n2, self.task_d2 = 0, 1, 0, 1
+        self.task_n1, self.task_d1, self.task_n2, self.task_d2 = 0, 1, 0, 1  # Numerators and Denominators for the task
+        self.correct_result_n, self.correct_result_d = 0, 1  # Final correct result
 
         self.font_body = font.Font(family="Helvetica", size=16)
         self.font_title = font.Font(family="Helvetica", size=18, weight="bold")
@@ -113,6 +114,7 @@ class FractionVisualizerApp(tk.Tk):
         self.style.configure("TScale", length=300)
         self.style.configure("Title.TLabel", font=self.font_title)
         self.style.configure("Success.TLabel", font=self.font_success, foreground="green")
+        self.style.configure("Error.TLabel", font=self.font_success, foreground="red")
 
         self.whole1_var = tk.IntVar()
         self.num1_var = tk.IntVar()
@@ -121,6 +123,7 @@ class FractionVisualizerApp(tk.Tk):
         self.num2_var = tk.IntVar()
         self.den2_var = tk.IntVar()
         self.success_var = tk.StringVar()
+        self.result_status_var = tk.StringVar()  # For displaying specific error/success messages
 
         main_pane = ttk.PanedWindow(self, orient=tk.VERTICAL)
         main_pane.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
@@ -137,8 +140,8 @@ class FractionVisualizerApp(tk.Tk):
 
         toolbar_frame = ttk.Frame(task_frame)
         toolbar_frame.pack(side=tk.LEFT, padx=20)
-        self.success_label = ttk.Label(toolbar_frame, textvariable=self.success_var, style="Success.TLabel")
-        self.success_label.pack(side=tk.LEFT, padx=20)
+        self.result_status_label = ttk.Label(toolbar_frame, textvariable=self.result_status_var, style="Success.TLabel")
+        self.result_status_label.pack(side=tk.LEFT, padx=20)
         ttk.Button(toolbar_frame, text="Нове завдання", command=self._generate_new_task).pack(side=tk.LEFT, padx=10)
         ttk.Button(toolbar_frame, text="Показати рішення", command=self._open_solution_window).pack(side=tk.LEFT,
                                                                                                     padx=10)
@@ -178,7 +181,7 @@ class FractionVisualizerApp(tk.Tk):
         den_widgets = self._create_slider_unit(frame, "Знаменник:", den_var)
         den_widgets['frame'].pack(pady=5, fill="x", expand=True)
 
-        return {'whole': whole_widgets, 'num': num_widgets, 'den': den_widgets}
+        return {'frame': frame, 'whole': whole_widgets, 'num': num_widgets, 'den': den_widgets}
 
     def _create_slider_unit(self, parent, label_text, var, is_slider=True):
         frame = ttk.Frame(parent)
@@ -191,7 +194,7 @@ class FractionVisualizerApp(tk.Tk):
                               command=lambda val, v=var: self._on_slider_change(val, v), orient="horizontal")
             scale.grid(row=1, column=1, sticky="ew")
         else:
-            ttk.Frame(frame).grid(row=1, column=1, sticky="ew")
+            ttk.Frame(frame).grid(row=1, column=1, sticky="ew")  # Placeholder for alignment
 
         btn_minus = ttk.Button(frame, text="-", command=lambda v=var: self._adjust_value(v, -1))
         btn_minus.grid(row=1, column=0, padx=(0, 5))
@@ -204,57 +207,108 @@ class FractionVisualizerApp(tk.Tk):
         return {'frame': frame, 'scale': scale, 'plus': btn_plus, 'minus': btn_minus}
 
     def _adjust_value(self, var, delta):
-        var.set(var.get() + delta)
+        new_val = var.get() + delta
+        # Ensure values don't go below 0 for whole and numerator, below 1 for denominator
+        if var == self.den1_var or var == self.den2_var:
+            if new_val < 1: new_val = 1
+        else:  # whole and numerator
+            if new_val < 0: new_val = 0
+        var.set(new_val)
         self._on_slider_change()
 
     def _on_slider_change(self, value=None, var=None):
         if var is not None and value is not None: var.set(int(float(value)))
-        if self.den1_var.get() < 1: self.den1_var.set(1)
-        if self.den2_var.get() < 1: self.den2_var.set(1)
+
+        # Ensure denominators are at least 1
+        if self.den1_var.get() == 0: self.den1_var.set(1)
+        if self.den2_var.get() == 0: self.den2_var.set(1)
+
+        # Ensure numerators are not larger than denominators, unless it's a mixed fraction being "unmixed"
+        # This part is tricky because the user might be in the process of borrowing.
+        # So we only enforce positive values for now.
         if self.num1_var.get() < 0: self.num1_var.set(0)
         if self.num2_var.get() < 0: self.num2_var.set(0)
         if self.whole1_var.get() < 0: self.whole1_var.set(0)
         if self.whole2_var.get() < 0: self.whole2_var.set(0)
+
         self.visualize()
+        self._check_user_answer()  # Check the answer on every change
 
     def _generate_new_task(self):
+        # Generate d1, d2 that are different for a real challenge
         while True:
-            d1, d2 = random.randint(3, 8), random.randint(3, 8)
-            if d1 != d2: break
+            d1 = random.randint(3, 8)
+            d2 = random.randint(3, 8)
+            if d1 != d2:  # We want different denominators for this task type
+                break
 
+        # Generate whole1 and frac_n1
         whole1 = random.randint(1, 3)
-        n1 = whole1 * d1 + random.randint(1, d1 - 1)
+        frac_n1 = random.randint(1, d1 - 1)
+        n1 = whole1 * d1 + frac_n1  # Store as improper fraction for internal calculation
 
+        # Generate whole2 and frac_n2 such that n1/d1 > n2/d2
         while True:
             whole2 = random.randint(0, whole1)
-            frac_n2 = random.randint(1, d2 - 1)
+            frac_n2 = random.randint(1, d2 - 1)  # Ensure frac_n2 is positive
+            n2 = whole2 * d2 + frac_n2  # Store as improper fraction
 
-            if whole1 == whole2 and (frac_n2 * d1 >= divmod(n1, d1)[1] * d2):
-                continue
+            # Check if n1/d1 is greater than n2/d2
+            if (n1 * d2) > (n2 * d1):
+                # We need to make sure that the subtraction will require borrowing or common denominator
+                # For this exercise, we enforce d1 != d2 (already done)
+                # And we need to ensure either initial n1 < n2 after common denominator OR w1 < w2 for user action
+                # Let's calculate the target values for borrowing check
+                lcm = (d1 * d2) // math.gcd(d1, d2)
+                temp_n1_lcm = (whole1 * d1 + frac_n1) * (lcm // d1)
+                temp_n2_lcm = (whole2 * d2 + frac_n2) * (lcm // d2)
 
-            n2 = whole2 * d2 + frac_n2
-            if n1 * d2 > n2 * d1: break
+                temp_w1, temp_f_n1 = divmod(temp_n1_lcm, lcm)
+                temp_w2, temp_f_n2 = divmod(temp_n2_lcm, lcm)
+
+                if temp_w1 < temp_w2 or temp_f_n1 < temp_f_n2:  # Task requires borrowing or common denominator
+                    break
 
         self._load_state((n1, d1, n2, d2))
+        self._calculate_correct_result(n1, d1, n2, d2)
+
+    def _calculate_correct_result(self, n1_orig, d1_orig, n2_orig, d2_orig):
+        """Calculates the final correct simplified result of the task."""
+        lcm = (d1_orig * d2_orig) // math.gcd(d1_orig, d2_orig)
+
+        # Convert to improper fractions with common denominator
+        common_n1 = n1_orig * (lcm // d1_orig)
+        common_n2 = n2_orig * (lcm // d2_orig)
+
+        # Perform subtraction
+        result_n_improper = common_n1 - common_n2
+        result_d = lcm
+
+        # Simplify the result
+        common_divisor = math.gcd(result_n_improper, result_d)
+        self.correct_result_n = result_n_improper // common_divisor
+        self.correct_result_d = result_d // common_divisor
 
     def _load_state(self, state):
         self._set_controls_state(tk.NORMAL)
-        self.success_var.set("")
+        self.result_status_var.set("")
+        self.success_var.set("")  # Clear success message
         n1, d1, n2, d2 = state
         self.task_n1, self.task_d1, self.task_n2, self.task_d2 = n1, d1, n2, d2
 
         w1, f_n1 = divmod(n1, d1)
         w2, f_n2 = divmod(n2, d2)
 
-        self.whole1_var.set(w1);
-        self.num1_var.set(f_n1);
+        # Set initial values for user input to the original task fractions
+        self.whole1_var.set(w1)
+        self.num1_var.set(f_n1)
         self.den1_var.set(d1)
-        self.whole2_var.set(w2);
-        self.num2_var.set(f_n2);
+        self.whole2_var.set(w2)
+        self.num2_var.set(f_n2)
         self.den2_var.set(d2)
 
         self._update_task_display(n1, d1, n2, d2)
-        self._on_slider_change()
+        self._on_slider_change()  # This will trigger visualize and check_user_answer
 
     def _update_task_display(self, n1, d1, n2, d2):
         self.task_canvas.delete("all")
@@ -286,7 +340,7 @@ class FractionVisualizerApp(tk.Tk):
                                              anchor="center")
                 x += whole_w + 5
 
-            if frac_n > 0 or (whole == 0 and n >= 0):
+            if frac_n > 0 or (whole == 0 and n >= 0 and d != 0):  # Display 0/d if whole is 0 and frac_n is 0
                 n_str, d_str = str(frac_n), str(d)
                 n_w, d_w = font_frac.measure(n_str), font_frac.measure(d_str)
                 max_w = max(n_w, d_w) + 10
@@ -319,46 +373,146 @@ class FractionVisualizerApp(tk.Tk):
         w1, n1, d1 = self.whole1_var.get(), self.num1_var.get(), self.den1_var.get()
         w2, n2, d2 = self.whole2_var.get(), self.num2_var.get(), self.den2_var.get()
 
-        total_n1 = w1 * d1 + n1
-        total_n2 = w2 * d2 + n2
+        # Safely handle d=0 before calculating total_n
+        total_n1 = w1 * d1 + n1 if d1 != 0 else n1
+        total_n2 = w2 * d2 + n2 if d2 != 0 else n2
 
         gs_main = gridspec.GridSpec(2, 3, figure=self.figure, height_ratios=[1, 9], hspace=0.1)
         ax_title1, ax_title2, ax_title3 = (self.figure.add_subplot(gs_main[0, i], facecolor='none') for i in range(3))
         for ax in [ax_title1, ax_title2, ax_title3]: ax.axis('off')
 
-        # ВИПРАВЛЕНО: Відображаємо тільки те, що ввів користувач
         ax_title1.set_title(self.format_user_input_title("Зменшуване", w1, n1, d1), fontsize=18)
         ax_title2.set_title(self.format_user_input_title("Від'ємник", w2, n2, d2), fontsize=18)
+        ax_title3.set_title("Різниця", fontsize=18)  # Default title
 
         ax1, ax2, ax3 = (self.figure.add_subplot(gs_main[1, i]) for i in range(3))
         self._draw_overlapping_circles(ax1, total_n1, d1, self.color1)
         self._draw_overlapping_circles(ax2, total_n2, d2, self.color2)
 
-        # Нова логіка перевірки та відображення
-        if d1 != d2:
-            ax_title3.set_title("Різниця", fontsize=18)
-            self.draw_placeholder(ax3, "Зведіть до\nспільного\nзнаменника!")
-        elif w1 < w2:
-            ax_title3.set_title("Різниця", fontsize=18)
-            self.draw_placeholder(ax3, "Ціла частина\nменша за\nцілу частину\nвід'ємника!")
-        elif n1 < n2:
-            ax_title3.set_title("Різниця", fontsize=18)
-            self.draw_placeholder(ax3, "Дріб менший.\n'Позичте'\nодиницю від\nцілої частини!")
-        else:
-            res_w, res_n, res_d = w1 - w2, n1 - n2, d1
-            ax_title3.set_title(self.format_user_input_title("Різниця", res_w, res_n, res_d), fontsize=18)
-            self._draw_overlapping_circles(ax3, res_w * res_d + res_n, res_d, self.color1)
-            self.success_var.set("✔ ВІДМІННО! Можна віднімати.")
-            self._set_controls_state(tk.DISABLED)
+        # Draw placeholder for the result initially
+        self.draw_placeholder(ax3, "Введіть розв'язок")
 
         self.figure.tight_layout(pad=2.0)
         self.canvas.draw()
 
+    def _check_user_answer(self):
+        self.result_status_var.set("")  # Clear previous status
+        self.result_status_label.config(style="Success.TLabel")  # Reset style
+
+        w1_user, n1_user, d1_user = self.whole1_var.get(), self.num1_var.get(), self.den1_var.get()
+        w2_user, n2_user, d2_user = self.whole2_var.get(), self.num2_var.get(), self.den2_var.get()
+
+        # Handle division by zero for user input
+        if d1_user == 0 or d2_user == 0:
+            self.result_status_var.set("Знаменник не може бути нулем!")
+            self.result_status_label.config(style="Error.TLabel")
+            return
+
+        # Step 1: Check if denominators are equal
+        if d1_user != d2_user:
+            self.result_status_var.set("Зведіть до спільного знаменника!")
+            self.result_status_label.config(style="Error.TLabel")
+            return
+
+        # Now, d1_user == d2_user. Let's call it common_d
+        common_d = d1_user
+
+        # Create temporary working copies for subtraction logic
+        temp_w1 = w1_user
+        temp_n1 = n1_user
+        temp_w2 = w2_user
+        temp_n2 = n2_user
+
+        # Step 2: Check if whole part of minuend is sufficient
+        if temp_w1 < temp_w2:
+            self.result_status_var.set("Ціла частина зменшуваного менша!")
+            self.result_status_label.config(style="Error.TLabel")
+            return
+
+        # Step 3: Check if fractional part of minuend is sufficient, and "borrow" if needed
+        if temp_n1 < temp_n2:
+            # We want to guide the user to manually perform the borrow.
+            # If temp_w1 > 0, they *can* borrow.
+            # We assume user will perform: temp_w1 -= 1 and temp_n1 += common_d.
+            # If their current slider values reflect this (or are one step towards it),
+            # then we allow. Otherwise, we prompt them.
+
+            # Condition to check if borrowing *is necessary* and *possible*
+            if w1_user > 0:
+                # Calculate what w1 and n1 *should be* after one borrow
+                expected_w1_after_borrow = w1_user - 1
+                expected_n1_after_borrow = n1_user + common_d
+
+                # If the user has NOT adjusted their sliders to reflect this specific borrow,
+                # then we tell them to perform the borrow.
+                # This makes the validation step-by-step.
+                if not (self.whole1_var.get() == expected_w1_after_borrow and \
+                        self.num1_var.get() == expected_n1_after_borrow):
+                    self.result_status_var.set("Дріб менший. 'Позичте' одиницю від цілої частини!")
+                    self.result_status_label.config(style="Error.TLabel")
+                    return
+                # If they *have* adjusted, then temp_w1 and temp_n1 already reflect the borrow,
+                # and the check `temp_n1 < temp_n2` should no longer be true (if they borrowed correctly).
+                # If it's still true, it means even after borrowing, the fractional part is insufficient
+                # (which shouldn't happen in correctly generated tasks, but good to have a fallback).
+                else:
+                    self.result_status_var.set("Позичте достатньо одиниць або перевірте розрахунки!")
+                    self.result_status_label.config(style="Error.TLabel")
+                    return
+            else:  # Cannot borrow (whole part is 0) and n1 < n2
+                self.result_status_var.set("Дробова частина зменшуваного менша, немає цілих для позичання!")
+                self.result_status_label.config(style="Error.TLabel")
+                return
+
+        # If we reached here, subtraction is possible based on user's current values
+        # Calculate the user's intended result
+        user_result_w = temp_w1 - temp_w2
+        user_result_n = temp_n1 - temp_n2
+        user_result_d = common_d
+
+        # Convert user's result to an improper fraction and simplify
+        user_total_n_improper = user_result_w * user_result_d + user_result_n
+        common_divisor_user = math.gcd(user_total_n_improper, user_result_d)
+        simplified_user_n = user_total_n_improper // common_divisor_user
+        simplified_user_d = user_result_d // common_divisor_user
+
+        # Compare with the pre-calculated correct result
+        if simplified_user_n == self.correct_result_n and simplified_user_d == self.correct_result_d:
+            self.result_status_var.set("✔ ВІДМІННО! Рішення правильне.")
+            self.result_status_label.config(style="Success.TLabel")
+            self._set_controls_state(tk.DISABLED)
+
+            # Now, visualize the correct result in the third plot
+            gs_main = gridspec.GridSpec(2, 3, figure=self.figure, height_ratios=[1, 9], hspace=0.1)
+            ax_title3 = self.figure.add_subplot(gs_main[0, 2], facecolor='none')
+            ax_title3.axis('off')
+
+            ax3 = self.figure.add_subplot(gs_main[1, 2])
+            # It's important to draw the simplified fraction (self.correct_result_n, self.correct_result_d)
+            # for the visual representation to be accurate.
+            self._draw_overlapping_circles(ax3, self.correct_result_n, self.correct_result_d, self.color1)
+            self.canvas.draw()  # Redraw the result plot specifically
+        else:
+            # If denominators are equal, and borrowing conditions met, but the final answer is wrong
+            self.result_status_var.set("Рішення невірне. Перевірте обчислення!")
+            self.result_status_label.config(style="Error.TLabel")
+
     def format_user_input_title(self, base_title, w, n, d):
-        if d == 0: return base_title
+        if d == 0: return base_title  # Avoid division by zero in title rendering
 
         whole_str = f"${w}$" if w > 0 else ""
-        frac_str = f"$\\frac{{{n}}}{{{d}}}$" if n > 0 or w == 0 else ""
+        # Only show fractional part if n > 0, or if w is 0 and n is 0 (to represent 0/d)
+        frac_str = f"$\\frac{{{n}}}{{{d}}}$" if n > 0 or (w == 0 and n == 0 and d != 0) else ""
+
+        # Special case: if both whole and numerator are 0, just show 0
+        if w == 0 and n == 0 and d != 0:
+            return f"{base_title}\n$0$"
+        # If w is 0 but n > 0, show only the fraction
+        elif w == 0 and n > 0 and d != 0:
+            return f"{base_title}\n$\\frac{{{n}}}{{{d}}}$"
+        # If w > 0 and n is 0, show only the whole number
+        elif w > 0 and n == 0 and d != 0:
+            return f"{base_title}\n${w}$"
 
         return f"{base_title}\n{whole_str}{frac_str}"
 
