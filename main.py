@@ -48,12 +48,14 @@ class SolutionWindow(tk.Toplevel):
             for line in lines[1:]:
                 if "->" in line:
                     parts = line.split("->")
-                    left, right = parts[0].strip(), parts[1].strip()
                     frac_frame = ttk.Frame(frame)
                     frac_frame.pack(anchor="w", pady=10)
-                    self.draw_fraction_expression(frac_frame, left)
-                    ttk.Label(frac_frame, text="  ->  ", font=self.font_frac).pack(side=tk.LEFT, padx=10)
-                    self.draw_fraction_expression(frac_frame, right)
+
+                    # Обробка кількох стрілок в одному рядку
+                    for i, part in enumerate(parts):
+                        if i > 0:
+                            ttk.Label(frac_frame, text="  ->  ", font=self.font_frac).pack(side=tk.LEFT, padx=10)
+                        self.draw_fraction_expression(frac_frame, part.strip())
                 else:
                     line_label = ttk.Label(frame, text=line, font=self.font_explanation, wraplength=700)
                     line_label.pack(anchor="w", pady=2)
@@ -90,7 +92,7 @@ class FractionVisualizerApp(tk.Tk):
 
         self.MAX_DENOMINATOR = 100
         self.color1, self.color2, self.empty_color = 'deepskyblue', 'salmon', '#E0E0E0'
-        self.task_n1, self.task_d1, self.task_n2, self.task_d2, self.task_lcm = 0, 1, 0, 1, 1
+        self.task_n1, self.task_d1, self.task_n2, self.task_d2 = 0, 1, 0, 1
 
         self.font_body = font.Font(family="Helvetica", size=16)
         self.font_title = font.Font(family="Helvetica", size=18, weight="bold")
@@ -175,7 +177,6 @@ class FractionVisualizerApp(tk.Tk):
     def _update_task_display(self, n1, d1, n2, d2):
         self.task_canvas.delete("all")
         self.task_canvas.bind("<Configure>", lambda e: self._draw_task_fractions(n1, d1, n2, d2), add="+")
-        # ВИПРАВЛЕННЯ: Примусово оновлюємо, щоб отримати розмір для <Configure>
         self.update_idletasks()
         self._draw_task_fractions(n1, d1, n2, d2)
 
@@ -243,7 +244,6 @@ class FractionVisualizerApp(tk.Tk):
         self.success_var.set("")
         n1, d1, n2, d2 = state
         self.task_n1, self.task_d1, self.task_n2, self.task_d2 = n1, d1, n2, d2
-        self.task_lcm = (d1 * d2) // math.gcd(d1, d2)
         self.num1_var.set(n1);
         self.den1_var.set(d1)
         self.num2_var.set(n2);
@@ -268,10 +268,11 @@ class FractionVisualizerApp(tk.Tk):
             if temp_count1.get(factor, 0) > 0:
                 temp_count1[factor] -= 1
             else:
-                lcm_factors_list.append(factor); missing_factors.append(str(factor))
+                lcm_factors_list.append(factor);
+                missing_factors.append(str(factor))
         lcm = math.prod(lcm_factors_list)
         return [
-            ("bold", "--- КРОК 1: ПОШУК НСК ---"),
+            ("bold", "--- КРОК 1: ПОШУК НСК (Найменшого Спільного Кратного) ---"),
             ("normal",
              f"1. Розкладемо знаменники ({d1} і {d2}) на прості множники:\n   {d1} = {' * '.join(map(str, factors1))}\n   {d2} = {' * '.join(map(str, factors2))}"),
             ("normal",
@@ -290,19 +291,35 @@ class FractionVisualizerApp(tk.Tk):
         self.figure.clear()
         num1, den1 = self.num1_var.get(), self.den1_var.get()
         num2, den2 = self.num2_var.get(), self.den2_var.get()
-        sum_num = num1 + num2
 
-        task_new_n1 = self.task_n1 * (self.task_lcm // self.task_d1)
-        task_new_n2 = self.task_n2 * (self.task_lcm // self.task_d2)
-        is_correct = (den1 == self.task_lcm and den2 == self.task_lcm and num1 == task_new_n1 and num2 == task_new_n2)
+        self.success_var.set("")  # Скидаємо повідомлення при кожній зміні
 
-        if is_correct:
-            self.success_var.set("✔ ПРАВИЛЬНО!")
-            self._set_controls_state(tk.DISABLED)
-        else:
-            self.success_var.set("")
+        # --- НОВА ЛОГІКА ПЕРЕВІРКИ ---
+        # Перевіряємо відповідь, тільки якщо користувач встановив спільний знаменник
+        if den1 > 0 and den1 == den2:
+            # Перевіряємо, чи еквівалентний перший дріб користувача першому дробу завдання
+            is_frac1_equiv = (num1 * self.task_d1 == self.task_n1 * den1)
+            # Перевіряємо, чи еквівалентний другий дріб користувача другому дробу завдання
+            is_frac2_equiv = (num2 * self.task_d2 == self.task_n2 * den2)
 
-        is_sum_greater_than_one = (den1 == den2 and sum_num > den1)
+            # Якщо обидва дроби перетворено правильно
+            if is_frac1_equiv and is_frac2_equiv:
+                sum_n = num1 + num2
+                sum_d = den1
+
+                common_divisor = math.gcd(sum_n, sum_d)
+
+                if common_divisor > 1:
+                    # Відповідь правильна, але результат можна скоротити
+                    self.success_var.set("✔ Правильно! Результат можна скоротити.")
+                else:
+                    # Відповідь правильна і результат вже скорочений
+                    self.success_var.set("✔ ВІДМІННО! Результат нескоротний.")
+
+                self._set_controls_state(tk.DISABLED)
+
+        # --- Логіка малювання залишається без змін ---
+        is_sum_greater_than_one = (den1 == den2 and (num1 + num2) > den1)
 
         if is_sum_greater_than_one:
             gs = gridspec.GridSpec(2, 3, figure=self.figure)
@@ -344,32 +361,54 @@ class FractionVisualizerApp(tk.Tk):
     def _build_solution_for_task(self):
         n1, d1, n2, d2 = self.task_n1, self.task_d1, self.task_n2, self.task_d2
         self.solution_steps = self._get_detailed_lcm_explanation(d1, d2)
-        lcm = self.task_lcm
+        lcm = (d1 * d2) // math.gcd(d1, d2)
         m1, m2 = lcm // d1, lcm // d2
+
+        sum_n = (n1 * m1) + (n2 * m2)
+
         sol_text = [
-            ("bold", "--- КРОК 3: ПОВНЕ РІШЕННЯ ЗАВДАННЯ ---"),
+            ("bold", "--- КРОК 3: ДОДАВАННЯ ДРОБІВ ---"),
             ("normal",
-             f"1. Домножимо дроби із ЗАВДАННЯ на їх додаткові множники:\n({n1}/{d1}) + ({n2}/{d2}) -> ({(n1 * m1)}/{lcm}) + ({(n2 * m2)}/{lcm})"),
-            ("normal", f"2. Додамо чисельники:\n= ({(n1 * m1 + n2 * m2)}/{lcm})"),
-            ("bold", f"3. Ваша мета: встановити на повзунках знаменник '{lcm}' та відповідні нові чисельники."),
+             f"1. Домножимо дроби із завдання на їх додаткові множники:\n({n1}/{d1}) + ({n2}/{d2}) -> ({(n1 * m1)}/{lcm}) + ({(n2 * m2)}/{lcm})"),
+            ("normal", f"2. Додамо чисельники:\n= ({sum_n}/{lcm})"),
         ]
         self.solution_steps.extend(sol_text)
+
+        # --- НОВИЙ КРОК: СКОРОЧЕННЯ РЕЗУЛЬТАТУ ---
+        common_divisor = math.gcd(sum_n, lcm)
+        if common_divisor > 1:
+            reduced_n = sum_n // common_divisor
+            reduced_d = lcm // common_divisor
+            reduction_step = [
+                ("bold", "--- КРОК 4: СКОРОЧЕННЯ РЕЗУЛЬТАТУ ---"),
+                ("normal", f"Отриманий дріб ({sum_n}/{lcm}) можна скоротити."),
+                ("normal", f"Знайдемо найбільший спільний дільник (НСД) для {sum_n} і {lcm}. НСД = {common_divisor}."),
+                ("normal",
+                 f"Поділимо чисельник і знаменник на {common_divisor}:\n({sum_n}/{lcm}) -> ({reduced_n}/{reduced_d})"),
+                ("bold", f"Кінцева відповідь: {reduced_n}/{reduced_d}")
+            ]
+            self.solution_steps.extend(reduction_step)
 
     def draw_fraction_pie(self, ax, numerators, colors, denominator, title):
         ax.set_title(title, pad=25, fontsize=26)
         ax.axis('equal')
         total_num = sum(numerators)
         if total_num > 0 and denominator > 0:
-            val, rounded_val = total_num / denominator, round(total_num / denominator, 3) #округлення, точність
+            val, rounded_val = total_num / denominator, round(total_num / denominator, 3)
             prefix = "≈" if abs(val - rounded_val) > 1e-9 else "="
             ax.text(0, -1.4, f"({prefix} {rounded_val})", ha='center', va='center', fontsize=18, color='gray')
+
         sizes, final_colors = [], []
         if sum(numerators) > 0:
-            sizes.extend(n for n in numerators if n > 0);
+            sizes.extend(n for n in numerators if n > 0)
             final_colors.extend(colors[:len(sizes)])
         if denominator - sum(numerators) > 0:
-            sizes.append(denominator - sum(numerators));
+            sizes.append(denominator - sum(numerators))
             final_colors.append(self.empty_color)
+
+        if not sizes:
+            sizes, final_colors = [1], [self.empty_color]
+
         ax.pie(sizes, colors=final_colors, startangle=90, counterclock=False,
                wedgeprops={'edgecolor': 'black', 'linewidth': 1})
         if denominator <= 40:
