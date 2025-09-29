@@ -297,7 +297,9 @@ class FractionReductionApp(tk.Tk):
 
         if numerator > 0 and denominator > 0:
             val = numerator / denominator
-            ax.text(0, -1.3, f"(= {val:.3f})", ha='center', va='center', fontsize=18, color='gray')
+            # --- ЗМІНЕНО ТУТ ---
+            # Використовуємо ":.3g" замість ":.3f", щоб видалити зайві нулі
+            ax.text(0, -1.3, f"(= {val:.3g})", ha='center', va='center', fontsize=18, color='gray')
 
         sizes, colors = [], []
         if numerator > 0:
